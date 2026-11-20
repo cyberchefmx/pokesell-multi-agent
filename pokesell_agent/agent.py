@@ -320,7 +320,25 @@ def _match_inventory_sku_from_text(prompt: str) -> dict[str, Any] | None:
         title_tokens = [
             tok
             for tok in re.findall(r"[a-z0-9]{3,}", haystack)
-            if tok not in ("pokemon", "tcg", "rare", "special", "guaranteed", "rip", "ship", "pack")
+            if tok
+            not in (
+                "pokemon",
+                "tcg",
+                "rare",
+                "special",
+                "guaranteed",
+                "rip",
+                "till",
+                "you",
+                "hit",
+                "ship",
+                "pack",
+                "booster",
+                "sleeves",
+                "coin",
+                "metallic",
+                "flip",
+            )
         ]
         score = sum(1 for tok in set(title_tokens) if tok in lowered)
         if score > best_score:
@@ -553,7 +571,14 @@ class PokeSellOrchestrator:
                         else _infer_selling_format(prompt)
                     )
                     packs_match = re.search(r"(\d+)\s+packs?\s+ripped", lower)
-                    hit_match = re.search(r"hit\s+([A-Za-z0-9 #'-]{3,50})", prompt, re.IGNORECASE)
+                    prompt_without_rtyh_phrase = re.sub(
+                        r"rip\s+till\s+you\s+hit", "", prompt, flags=re.IGNORECASE
+                    )
+                    hit_match = re.search(
+                        r"\b(?:pulled|hit:?)\s+([A-Za-z0-9 #'-]{3,50})",
+                        prompt_without_rtyh_phrase,
+                        re.IGNORECASE,
+                    )
 
                     cleaned_title = (
                         str(matched_inv["item_title"])
