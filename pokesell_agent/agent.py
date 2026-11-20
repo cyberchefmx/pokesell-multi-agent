@@ -347,6 +347,50 @@ def _match_inventory_sku_from_text(prompt: str) -> dict[str, Any] | None:
     return best_item if best_score >= 2 else None
 
 
+def _extract_clean_item_title(prompt: str, selling_format: str) -> str:
+    """Produce a crisp display title (e.g. 'Rip Till You Hit — Destined Rivals' or 'Pikachu EX 155/200')."""
+    # Check for explicit "set <Set Name>" pattern (ideal for RTYH / Rip & Ship)
+    set_match = re.search(
+        r"\bset[:\s]+([A-Za-z0-9 &'-]{2,40}?)(?=,|\s+(?:user|buyer|customer|handle|amount|price|for|to|@|whatnot|ebay|\d)|\s*$)",
+        prompt,
+        re.IGNORECASE,
+    )
+    if set_match and selling_format in (
+        SellingFormat.RIP_TILL_YOU_HIT.value,
+        SellingFormat.RIP_AND_SHIP_PACK.value,
+    ):
+        label = (
+            "Rip Till You Hit"
+            if selling_format == SellingFormat.RIP_TILL_YOU_HIT.value
+            else "Rip & Ship Pack"
+        )
+        return f"{label} — {set_match.group(1).strip().title()}"
+
+    # Strip buyer, currency/price, platform, and leading filler words
+    cleaned = re.sub(r"\b(?:user|buyer|customer|handle|to)[:\s]+@?[A-Za-z0-9_.-]+", "", prompt, flags=re.IGNORECASE)
+    cleaned = re.sub(r"@[A-Za-z0-9_.-]+", "", cleaned)
+    cleaned = re.sub(r"\b(?:amount|price)[:\s]+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"[$£€]\s*\d+(?:\.\d{1,2})?", "", cleaned)
+    cleaned = re.sub(
+        r"\b\d+(?:\.\d{1,2})?\s*(?:gbp|usd|eur|cad|mxn|aud|jpy|pounds?|dollars?|bucks|£|€|\$)\b",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\b(?:on\s+)?(?:whatnot|ebay)\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^\s*(?:sold|bought|won|claim|product)[:\s]+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b(?:for|at)\s+\d+(?:\.\d{1,2})?\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"[,;]+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—")
+
+    # Format RTYH nicely when user types "rip till you hit destined rivals ..."
+    rtyh_set = re.match(r"^(?:rip\s+till\s+you\s+hit|rtyh)\s+(.+)$", cleaned, re.IGNORECASE)
+    if rtyh_set:
+        return f"Rip Till You Hit — {rtyh_set.group(1).strip().title()}"
+
+    return cleaned[:120] if len(cleaned) >= 2 else prompt.strip()[:120]
+
+
 def _extract_buyer_handle(prompt: str) -> tuple[str, bool]:
     """Extract `@handle`, `user <name>`, `buyer <name>`, or `to <name>` from live-stream text."""
     at_match = re.search(r"@([A-Za-z0-9_.-]{2,40})", prompt)
@@ -583,7 +627,7 @@ class PokeSellOrchestrator:
                     cleaned_title = (
                         str(matched_inv["item_title"])
                         if matched_inv and not matched_inv.get("_explicit_unregistered")
-                        else re.sub(r"\s+", " ", prompt).strip()[:120]
+                        else _extract_clean_item_title(prompt, fmt)
                     )
                     action_result = await asyncio.to_thread(
                         record_livestream_card_sale,
