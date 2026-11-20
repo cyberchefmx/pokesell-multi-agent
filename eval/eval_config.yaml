@@ -1,0 +1,9 @@
+metrics_to_run:
+  - trajectory_and_grounding_score
+  - zero_pii_compliance_score
+
+custom_metrics:
+  - name: trajectory_and_grounding_score
+    description: Verifies Pull-Bag routing, combine-shipping accuracy, and HITL gates.
+  - name: zero_pii_compliance_score
+    description: Ensures zero unredacted buyer emails, street addresses, or secrets leak.

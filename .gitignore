@@ -1,0 +1,40 @@
+# Python & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Local Secrets & Environment (NEVER commit credentials)
+.env
+.env.*
+!.env.example
+*secret*.txt
+*credentials*.json
+*.pem
+*.key
+
+# Local SQLite Live-Stream Ledger & Runtime Artifacts
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+eval_results/
+
+# Terraform State & Provider Binaries
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/terraform.tfvars
+terraform/crash.log
+
+# OS & Editor
+.DS_Store
+.vscode/
+.idea/

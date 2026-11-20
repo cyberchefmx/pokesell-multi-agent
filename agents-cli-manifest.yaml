@@ -1,0 +1,13 @@
+name: "pokesell-multi-agent"
+acli_version: "1.4.2"
+agent_directory: "pokesell_agent"
+region: "us-central1"
+base_template: "adk"
+language: "python"
+create_params:
+  deployment_target: "cloud_run"
+  session_type: "agent_platform_sessions"
+  cicd_runner: "github_actions"
+  is_a2a: true
+  agent_gateway: false
+  agent_guidance_filename: "README.md"

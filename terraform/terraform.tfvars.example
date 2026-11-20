@@ -1,0 +1,4 @@
+project_id      = "your-gcp-project-id"
+region          = "us-central1"
+service_name    = "pokesell-multi-agent"
+container_image = "us-central1-docker.pkg.dev/your-gcp-project-id/pokesell/pokesell-multi-agent:v1.0.0"

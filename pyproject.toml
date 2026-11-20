@@ -1,0 +1,49 @@
+[project]
+name = "pokesell-multi-agent"
+version = "1.0.0"
+description = "PokeSell Ops — Production-Grade Multi-Agent Pokémon TCG Live-Stream Sales, Buyer CRM, Pull-Bag Fulfillment & Analytics System (Google ADK)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "cyberchefmx" }
+]
+dependencies = [
+    "google-adk>=1.0.0",
+    "google-genai>=1.0.0",
+    "pydantic>=2.7.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    "opentelemetry-api>=1.25.0",
+    "opentelemetry-sdk>=1.25.0",
+    "opentelemetry-exporter-gcp-trace>=1.7.0",
+    "python-json-logger>=2.0.7",
+    "google-cloud-secret-manager>=2.20.0",
+    "google-cloud-dlp>=3.18.0",
+    "google-cloud-logging>=3.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",
+    "ruff>=0.6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pokesell_agent"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

@@ -1,0 +1,36 @@
+name: Terraform IaC Validation
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "terraform/**"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "terraform/**"
+
+permissions:
+  contents: read
+
+jobs:
+  terraform-validate:
+    name: Terraform Format & Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Check Terraform Formatting
+        run: terraform -chdir=terraform fmt -check
+
+      - name: Initialize Terraform (Backend Disabled for Static Validation)
+        run: terraform -chdir=terraform init -backend=false
+
+      - name: Validate Terraform Configuration
+        run: terraform -chdir=terraform validate
