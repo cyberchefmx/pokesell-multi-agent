@@ -322,6 +322,25 @@ def _match_inventory_sku_from_text(prompt: str) -> dict[str, Any] | None:
     return best_item if best_score >= 1 else None
 
 
+def _extract_buyer_handle(prompt: str) -> tuple[str, bool]:
+    """Extract `@handle` or `to <name>` from casual live-stream sale text."""
+    at_match = re.search(r"@([A-Za-z0-9_.-]{2,40})", prompt)
+    if at_match:
+        return f"@{at_match.group(1).lower()}", True
+
+    to_match = re.search(
+        r"\bto\s+([A-Za-z][A-Za-z0-9_.-]{1,30})\b",
+        prompt,
+        re.IGNORECASE,
+    )
+    if to_match:
+        cand = to_match.group(1).lower()
+        if cand not in ("whatnot", "ebay", "bag", "ship", "pack", "sell"):
+            return f"@{cand}", True
+
+    return "@walkin_viewer", False
+
+
 def _extract_sale_price_and_qty(prompt: str) -> tuple[float | None, int]:
     """Extract hammer price and optional quantity (e.g. '3x') from casual live-stream text."""
     lower = prompt.lower()
@@ -338,18 +357,18 @@ def _extract_sale_price_and_qty(prompt: str) -> tuple[float | None, int]:
     if for_match:
         return float(for_match.group(1)), qty
 
-    # Priority 3: trailing standalone price when a @buyer handle is present (e.g., "Charizard @pokefan99 145")
-    if "@" in prompt:
-        cleaned = re.sub(r"\b(psa|bgs|cgc)\s*\d+(?:\.\d+)?\b", "", lower)
-        cleaned = re.sub(r"\b\d+\s*packs?\b", "", cleaned)
-        cleaned = re.sub(r"#\d+", "", cleaned)
-        cleaned = re.sub(r"@[a-z0-9_.-]+", "", cleaned)
-        cleaned = re.sub(r"\b\d+\s*x\b", "", cleaned)
-        nums = re.findall(r"\b(\d+(?:\.\d{1,2})?)\b", cleaned)
-        if nums:
-            val = float(nums[-1])
-            if 0.5 <= val <= 25000.0:
-                return val, qty
+    # Priority 3: trailing standalone price (e.g., "Charizard ex 155", "Mew coin to alex 8")
+    cleaned = re.sub(r"\b(psa|bgs|cgc)\s*\d+(?:\.\d+)?\b", "", lower)
+    cleaned = re.sub(r"\b\d+\s*packs?\b", "", cleaned)
+    cleaned = re.sub(r"\b(?:sale|bag|stream)-[a-z0-9-]+\b", "", cleaned)
+    cleaned = re.sub(r"#\d+", "", cleaned)
+    cleaned = re.sub(r"@[a-z0-9_.-]+", "", cleaned)
+    cleaned = re.sub(r"\b\d+\s*x\b", "", cleaned)
+    nums = re.findall(r"\b(\d+(?:\.\d{1,2})?)\b", cleaned)
+    if nums:
+        val = float(nums[-1])
+        if 0.5 <= val <= 25000.0:
+            return val, qty
     return None, qty
 
 
@@ -410,8 +429,7 @@ class PokeSellOrchestrator:
             )
 
             lower = prompt.lower()
-            handle_match = re.search(r"@([A-Za-z0-9_.-]{2,40})", prompt)
-            buyer_handle = f"@{handle_match.group(1).lower()}" if handle_match else "@pokefan99"
+            buyer_handle, has_explicit_buyer = _extract_buyer_handle(prompt)
             platform = "ebay" if "ebay" in lower else "whatnot"
 
             # 3. Stage 1: Parallel Buyer CRM + Inventory/Insights Scout (Gemini Flash)
@@ -454,10 +472,7 @@ class PokeSellOrchestrator:
                         "insights",
                     )
                 )
-                is_sale_intent = price_val is not None and (
-                    any(w in lower for w in ("sold", "bought", "won", "claim"))
-                    or (handle_match is not None and not is_question_query)
-                )
+                is_sale_intent = price_val is not None and not is_question_query
 
                 if any(w in lower for w in ("refund", "void", "cancel sale")) and sale_id_match:
                     target_sale = sale_id_match.group(1).upper()
@@ -573,7 +588,7 @@ class PokeSellOrchestrator:
                             f"VIP Perk: {action_result['vip_perk_recommendation']}"
                         )
 
-                elif handle_match and any(
+                elif has_explicit_buyer and any(
                     w in lower for w in ("bought before", "history", "vip", "who is", "purchased", "open bag")
                 ):
                     action_result = buyer_crm
