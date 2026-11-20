@@ -348,19 +348,19 @@ def _match_inventory_sku_from_text(prompt: str) -> dict[str, Any] | None:
 
 
 def _extract_buyer_handle(prompt: str) -> tuple[str, bool]:
-    """Extract `@handle` or `to <name>` from casual live-stream sale text."""
+    """Extract `@handle`, `user <name>`, `buyer <name>`, or `to <name>` from live-stream text."""
     at_match = re.search(r"@([A-Za-z0-9_.-]{2,40})", prompt)
     if at_match:
         return f"@{at_match.group(1).lower()}", True
 
-    to_match = re.search(
-        r"\bto\s+([A-Za-z][A-Za-z0-9_.-]{1,30})\b",
+    labeled_match = re.search(
+        r"\b(?:user|buyer|customer|handle|to)[:\s]+([A-Za-z][A-Za-z0-9_.-]{1,30})\b",
         prompt,
         re.IGNORECASE,
     )
-    if to_match:
-        cand = to_match.group(1).lower()
-        if cand not in ("whatnot", "ebay", "bag", "ship", "pack", "sell"):
+    if labeled_match:
+        cand = labeled_match.group(1).lower()
+        if cand not in ("whatnot", "ebay", "bag", "ship", "pack", "sell", "gbp", "usd", "eur"):
             return f"@{cand}", True
 
     return "@walkin_viewer", False
