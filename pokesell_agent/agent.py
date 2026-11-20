@@ -294,6 +294,65 @@ def _infer_selling_format(text: str) -> str:
     return SellingFormat.SINGLES.value
 
 
+def _match_inventory_sku_from_text(prompt: str) -> dict[str, Any] | None:
+    """Match an explicit SKU or fuzzy-match an existing Pokémon inventory item from natural text."""
+    from pokesell_agent.database import get_ledger_db
+
+    sku_match = re.search(r"\b((?:PKM|PACK|RTYH|SLV|COIN)-[A-Z0-9-]+)\b", prompt, re.IGNORECASE)
+    db = get_ledger_db()
+    if sku_match:
+        found = db.get_inventory_item(sku_match.group(1).upper())
+        if found is not None:
+            return found
+        return {"sku": sku_match.group(1).upper(), "_explicit_unregistered": True}
+
+    lowered = prompt.lower()
+    best_item: dict[str, Any] | None = None
+    best_score = 0
+    for item in db.list_inventory():
+        title_tokens = [
+            tok
+            for tok in re.findall(r"[a-z0-9]{3,}", f"{item['item_title']} {item['set_name']}".lower())
+            if tok not in ("pokemon", "tcg", "rare", "special", "guaranteed", "rip", "ship", "pack")
+        ]
+        score = sum(1 for tok in set(title_tokens) if tok in lowered)
+        if score > best_score:
+            best_score = score
+            best_item = item
+    return best_item if best_score >= 1 else None
+
+
+def _extract_sale_price_and_qty(prompt: str) -> tuple[float | None, int]:
+    """Extract hammer price and optional quantity (e.g. '3x') from casual live-stream text."""
+    lower = prompt.lower()
+    qty_match = re.search(r"\b(\d{1,3})\s*x\b", lower)
+    qty = max(1, min(int(qty_match.group(1)), 200)) if qty_match else 1
+
+    # Priority 1: explicit $price (e.g., "$155", "$19.50")
+    dollar_match = re.search(r"\$\s*(\d+(?:\.\d{1,2})?)", prompt)
+    if dollar_match:
+        return float(dollar_match.group(1)), qty
+
+    # Priority 2: "for 155" / "at 24"
+    for_match = re.search(r"\b(?:for|at)\s+(\d+(?:\.\d{1,2})?)\s*(?:usd|dollars|bucks)?\b", lower)
+    if for_match:
+        return float(for_match.group(1)), qty
+
+    # Priority 3: trailing standalone price when a @buyer handle is present (e.g., "Charizard @pokefan99 145")
+    if "@" in prompt:
+        cleaned = re.sub(r"\b(psa|bgs|cgc)\s*\d+(?:\.\d+)?\b", "", lower)
+        cleaned = re.sub(r"\b\d+\s*packs?\b", "", cleaned)
+        cleaned = re.sub(r"#\d+", "", cleaned)
+        cleaned = re.sub(r"@[a-z0-9_.-]+", "", cleaned)
+        cleaned = re.sub(r"\b\d+\s*x\b", "", cleaned)
+        nums = re.findall(r"\b(\d+(?:\.\d{1,2})?)\b", cleaned)
+        if nums:
+            val = float(nums[-1])
+            if 0.5 <= val <= 25000.0:
+                return val, qty
+    return None, qty
+
+
 class PokeSellOrchestrator:
     """Executes the traced Coordinator -> Parallel -> Sequential -> AsyncMemory flow."""
 
@@ -378,9 +437,27 @@ class PokeSellOrchestrator:
             with start_traced_span("agent.sale_ledger_and_packaging_strategist_agent"):
                 sale_id_match = re.search(r"\b(SALE-\d{4,6})\b", prompt, re.IGNORECASE)
                 bag_id_match = re.search(r"\b(BAG-\d{3,5})\b", prompt, re.IGNORECASE)
-                price_match = re.search(r"\$\s*(\d+(?:\.\d{1,2})?)", prompt)
-                if not price_match:
-                    price_match = re.search(r"\bfor\s+(\d+(?:\.\d{1,2})?)\s*(?:usd|dollars|bucks)?\b", lower)
+                price_val, qty_val = _extract_sale_price_and_qty(prompt)
+                is_question_query = any(
+                    w in lower
+                    for w in (
+                        "bought before",
+                        "history",
+                        "vip",
+                        "who is",
+                        "purchased",
+                        "open bag",
+                        "how many",
+                        "how much",
+                        "profit",
+                        "revenue",
+                        "insights",
+                    )
+                )
+                is_sale_intent = price_val is not None and (
+                    any(w in lower for w in ("sold", "bought", "won", "claim"))
+                    or (handle_match is not None and not is_question_query)
+                )
 
                 if any(w in lower for w in ("refund", "void", "cancel sale")) and sale_id_match:
                     target_sale = sale_id_match.group(1).upper()
@@ -421,7 +498,7 @@ class PokeSellOrchestrator:
                             f"${action_result.get('total_declared_value_usd', 0):.2f} for carrier dispatch."
                         )
 
-                elif bag_id_match and not any(w in lower for w in ("sold", "bought", "won")):
+                elif bag_id_match and not is_sale_intent:
                     target_bag = bag_id_match.group(1).upper()
                     action_result = await asyncio.to_thread(
                         assign_fulfillment_pull_bag_and_packaging_tier,
@@ -436,15 +513,22 @@ class PokeSellOrchestrator:
                         f"{', '.join(action_result.get('protection_supplies_checklist', []))}."
                     )
 
-                elif any(w in lower for w in ("sold", "bought", "won", "claim")) and price_match:
-                    price_val = float(price_match.group(1))
-                    fmt = _infer_selling_format(prompt)
-                    sku_match = re.search(r"\b((?:PKM|PACK|RTYH|SLV|COIN)-[A-Z0-9-]+)\b", prompt, re.IGNORECASE)
+                elif is_sale_intent and price_val is not None:
+                    matched_inv = _match_inventory_sku_from_text(prompt)
+                    matched_sku = matched_inv["sku"] if matched_inv else None
+                    fmt = (
+                        str(matched_inv["selling_format"])
+                        if matched_inv and not matched_inv.get("_explicit_unregistered")
+                        else _infer_selling_format(prompt)
+                    )
                     packs_match = re.search(r"(\d+)\s+packs?\s+ripped", lower)
                     hit_match = re.search(r"hit\s+([A-Za-z0-9 #'-]{3,50})", prompt, re.IGNORECASE)
 
-                    # Extract concise item title
-                    cleaned_title = re.sub(r"\s+", " ", prompt).strip()[:120]
+                    cleaned_title = (
+                        str(matched_inv["item_title"])
+                        if matched_inv and not matched_inv.get("_explicit_unregistered")
+                        else re.sub(r"\s+", " ", prompt).strip()[:120]
+                    )
                     action_result = await asyncio.to_thread(
                         record_livestream_card_sale,
                         stream_id=stream_id,
@@ -453,7 +537,8 @@ class PokeSellOrchestrator:
                         item_title=cleaned_title,
                         selling_format=fmt,
                         hammer_price_usd=price_val,
-                        sku=sku_match.group(1).upper() if sku_match else None,
+                        quantity=qty_val,
+                        sku=matched_sku,
                         rtyh_packs_ripped=int(packs_match.group(1)) if packs_match else 0,
                         rtyh_hit_card=hit_match.group(1).strip() if hit_match else None,
                         buyer_notes=prompt,

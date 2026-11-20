@@ -27,6 +27,11 @@ data/*.db-wal
 data/*.db-shm
 eval_results/
 
+# Angular 22 Frontend Build Dependencies
+frontend/node_modules/
+frontend/.angular/
+frontend/dist/
+
 # Terraform State & Provider Binaries
 terraform/.terraform/
 terraform/*.tfstate

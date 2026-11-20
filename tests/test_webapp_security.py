@@ -50,12 +50,12 @@ def test_csrf_protection_and_session_lifecycle(secure_client: TestClient) -> Non
     )
     assert no_csrf.status_code == 403
 
-    # POST with valid X-CSRF-Token succeeds
+    # POST with valid X-CSRF-Token succeeds even with casual shorthand (no "sold" keyword needed)
     ok_chat = secure_client.post(
         "/api/v1/chat",
         headers={"X-CSRF-Token": csrf_token},
         json={
-            "prompt": "Sold SLV-POKEMON-CENTER-GENGAR sleeves to @pokefan99 on whatnot for $19",
+            "prompt": "Gengar sleeves @pokefan99 $19 whatnot",
             "stream_id": "STREAM-LIVE-001",
         },
     )
@@ -103,14 +103,20 @@ def test_sql_injection_resilience_and_static_frontend_dom_safety(secure_client: 
     dash = secure_client.get("/api/v1/dashboard").json()
     assert len(dash["inventory"]) >= 7
 
-    # Static verification that frontend JS never assigns to innerHTML/outerHTML or uses localStorage
-    js_source = (PROJECT_ROOT / "pokesell_agent" / "static" / "app.js").read_text(encoding="utf-8")
-    code_lines = [
-        line for line in js_source.splitlines() if not line.strip().startswith(("*", "//", "/*"))
+    # Verify Angular root page and compiled bundle are served cleanly
+    index_html = secure_client.get("/").text
+    assert "<app-root></app-root>" in index_html
+
+    # Static verification that Angular frontend never uses unsafe DOM sinks or localStorage tokens
+    frontend_files = [
+        PROJECT_ROOT / "frontend" / "src" / "app" / "app.component.ts",
+        PROJECT_ROOT / "frontend" / "src" / "app" / "app.component.html",
+        PROJECT_ROOT / "frontend" / "src" / "app" / "pokesell.service.ts",
     ]
-    joined_code = "\n".join(code_lines)
-    assert ".innerHTML" not in joined_code
-    assert ".outerHTML" not in joined_code
-    assert "insertAdjacentHTML" not in joined_code
-    assert "localStorage" not in joined_code
-    assert "sessionStorage" not in joined_code
+    for fpath in frontend_files:
+        src = fpath.read_text(encoding="utf-8")
+        assert ".innerHTML" not in src
+        assert "[innerHTML]" not in src
+        assert "bypassSecurityTrustHtml" not in src
+        assert "localStorage" not in src
+        assert "sessionStorage" not in src

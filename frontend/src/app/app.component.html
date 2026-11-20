@@ -1,0 +1,465 @@
+<div class="studio-shell">
+  <!-- Sticky Top Bar -->
+  <header class="studio-topbar">
+    <div class="brand-cluster">
+      <div class="brand-mark" aria-hidden="true">PS</div>
+      <div>
+        <h1 class="brand-title">PokeSell Ops Studio</h1>
+        <span class="brand-sub">Angular Signal UI • Google ADK Multi-Agent • Local SQLite</span>
+      </div>
+    </div>
+
+    @if (insights(); as kpi) {
+      <div class="top-kpi-pills" aria-label="Live Stream KPIs">
+        <div class="kpi-pill">
+          <span class="kpi-pill-label">Units</span>
+          <strong>{{ kpi.total_units_sold }}</strong>
+        </div>
+        <div class="kpi-pill">
+          <span class="kpi-pill-label">Gross</span>
+          <strong>${{ kpi.gross_revenue_usd | number:'1.2-2' }}</strong>
+        </div>
+        <div class="kpi-pill kpi-pill-green">
+          <span class="kpi-pill-label">Net Profit</span>
+          <strong>${{ kpi.estimated_net_profit_usd | number:'1.2-2' }}</strong>
+        </div>
+        <div class="kpi-pill kpi-pill-blue">
+          <span class="kpi-pill-label">Open Bags</span>
+          <strong>{{ kpi.open_pull_bags_count }}</strong>
+        </div>
+      </div>
+    }
+
+    <div class="top-actions">
+      <input
+        class="stream-id-input"
+        type="text"
+        [ngModel]="streamId()"
+        (ngModelChange)="streamId.set($event)"
+        aria-label="Active Stream ID"
+      />
+      <button type="button" class="btn btn-warning" (click)="openManifestModal()">
+        Closeout Bags (HITL)
+      </button>
+      <button type="button" class="btn btn-ghost" (click)="resetSession()">
+        Reset
+      </button>
+    </div>
+  </header>
+
+  <!-- 3-Column Streamer Studio Body -->
+  <div class="studio-columns">
+    <!-- LEFT COLUMN: Post-Stream & Ops Menus -->
+    <nav class="left-nav" aria-label="Post-Stream Operations Menus">
+      <div class="nav-section-title">Live Stream</div>
+      <button
+        type="button"
+        class="nav-item"
+        [class.active]="activeNav() === 'live'"
+        (click)="setNav('live')"
+      >
+        <span>Live Command Stage</span>
+      </button>
+
+      <div class="nav-section-title">Post-Stream Menus</div>
+      <button
+        type="button"
+        class="nav-item"
+        [class.active]="activeNav() === 'bags'"
+        (click)="setNav('bags')"
+      >
+        <span>Pull-Bags &amp; Packing</span>
+        <span class="nav-count">{{ openBags().length }}</span>
+      </button>
+      <button
+        type="button"
+        class="nav-item"
+        [class.active]="activeNav() === 'inventory'"
+        (click)="setNav('inventory')"
+      >
+        <span>Inventory &amp; Binders</span>
+        <span class="nav-count">{{ inventory().length }}</span>
+      </button>
+      <button
+        type="button"
+        class="nav-item"
+        [class.active]="activeNav() === 'crm'"
+        (click)="setNav('crm')"
+      >
+        <span>Buyer VIP CRM</span>
+      </button>
+      <button
+        type="button"
+        class="nav-item"
+        [class.active]="activeNav() === 'analytics'"
+        (click)="setNav('analytics')"
+      >
+        <span>P&amp;L &amp; AgentOps Trace</span>
+      </button>
+
+      @if (insights(); as ins) {
+        <div class="nav-footer-card">
+          <div class="nav-footer-label">Repeat Buyers</div>
+          <div class="nav-footer-val">{{ ins.repeat_buyers_count }} VIPs</div>
+          <div class="nav-footer-sub">
+            Fees Paid: ${{ ins.total_platform_fees_usd | number:'1.2-2' }}
+          </div>
+        </div>
+      }
+    </nav>
+
+    <!-- CENTER STAGE: Hero Typing Component (Primary UX!) + Post-Menu Views -->
+    <main class="center-stage">
+      <!-- Always-Available Hero Sale Command Bar -->
+      <section class="hero-command-card" aria-label="Auto-Log Live Sale Command Bar">
+        <div class="hero-header">
+          <div>
+            <h2 class="hero-title">What Just Sold?</h2>
+            <p class="hero-sub">
+              Type product, buyer <code>&#64;handle</code>, and price — press <strong>Enter</strong> to auto-log in SQLite, check repeat VIP status, and assign a Pull-Bag.
+            </p>
+          </div>
+          <span class="badge badge-blue">ADK Multi-Agent Ready</span>
+        </div>
+
+        <form class="hero-input-row" (ngSubmit)="submitLiveCommand()">
+          <input
+            type="text"
+            class="hero-input"
+            name="liveCommand"
+            [ngModel]="commandInput()"
+            (ngModelChange)="commandInput.set($event)"
+            placeholder="e.g. Charizard ex @pokefan99 $155 whatnot  |  3x Prismatic packs @misty 24"
+            autocomplete="off"
+            autofocus
+          />
+          <button type="submit" class="btn btn-primary btn-hero" [disabled]="isBusy()">
+            {{ isBusy() ? 'Routing...' : 'Log & Route' }}
+          </button>
+        </form>
+
+        <div class="quick-chips" aria-label="Quick Sale Presets">
+          @for (ex of quickExamples; track ex) {
+            <button type="button" class="chip-btn" (click)="fillExample(ex)">
+              {{ ex }}
+            </button>
+          }
+        </div>
+
+        <div
+          class="agent-banner"
+          [class.agent-banner-error]="isErrorBanner()"
+          role="status"
+          aria-live="polite"
+        >
+          {{ statusMessage() }}
+        </div>
+      </section>
+
+      <!-- Giant Glanceable Packing Action Card (appears automatically when a sale is logged!) -->
+      @if (activeNav() === 'live') {
+        @if (lastSaleAction(); as sale) {
+          <section class="action-hero-card" aria-label="Instant Packing Instruction">
+            <div class="action-hero-top">
+              <div>
+                <span class="action-eyebrow">{{ sale.platform }} • {{ sale.saleId }}</span>
+                <h3 class="action-bag-headline">
+                  PUT IN {{ sale.bagNumber }}
+                </h3>
+              </div>
+              <div class="action-badges">
+                @if (sale.combined) {
+                  <span class="badge badge-green badge-lg">COMBINED INTO OPEN BAG</span>
+                } @else {
+                  <span class="badge badge-blue badge-lg">NEW PULL-BAG OPENED</span>
+                }
+                <span [class]="tierBadgeClass(sale.packagingTier) + ' badge-lg'">
+                  {{ sale.packagingTier }}
+                </span>
+              </div>
+            </div>
+
+            <div class="action-grid">
+              <div class="action-box">
+                <span class="action-label">Pull Item From</span>
+                <strong>{{ sale.pullFrom }}</strong>
+                <span class="action-meta">{{ sale.itemTitle }}</span>
+              </div>
+              <div class="action-box">
+                <span class="action-label">Buyer &amp; VIP Status</span>
+                <strong>{{ sale.buyerHandle }}</strong>
+                <span class="action-meta">
+                  {{ sale.isRepeat ? 'Repeat Buyer' : 'First-Time Buyer' }} • {{ sale.vipTier }}
+                </span>
+              </div>
+              <div class="action-box">
+                <span class="action-label">Economics (After Fees)</span>
+                <strong>+${{ sale.netProfit | number:'1.2-2' }} Est. Profit</strong>
+                <span class="action-meta">
+                  Gross ${{ sale.gross | number:'1.2-2' }} • Payout ${{ sale.netPayout | number:'1.2-2' }}
+                </span>
+              </div>
+            </div>
+
+            <div class="action-supplies-row">
+              <strong>Supplies Checklist:</strong>
+              @for (sup of sale.supplies; track sup) {
+                <span class="supply-pill">{{ sup }}</span>
+              }
+            </div>
+            <div class="action-perk-bar">
+              <strong>VIP Perk:</strong> {{ sale.perk }}
+            </div>
+          </section>
+        }
+
+        <!-- Compact Open Bags Preview right under center stage -->
+        <section class="panel-card">
+          <div class="panel-row-head">
+            <h3>Active Desk Pull-Bags ({{ openBags().length }})</h3>
+            <button type="button" class="btn btn-ghost btn-sm" (click)="setNav('bags')">
+              Open Full Packing View
+            </button>
+          </div>
+          @if (openBags().length === 0) {
+            <p class="muted-text">No open Pull-Bags yet. Type a sale above to open your first numbered bag!</p>
+          } @else {
+            <div class="mini-bags-grid">
+              @for (bag of openBags(); track bag.bag_number) {
+                <article class="mini-bag-card">
+                  <div class="mini-bag-head">
+                    <strong>{{ bag.bag_number }} — {{ bag.buyer_handle }}</strong>
+                    <span [class]="tierBadgeClass(bag.packaging_tier)">{{ bag.packaging_tier }}</span>
+                  </div>
+                  <div class="mini-bag-meta">
+                    {{ bag.shelf_bin_coordinate }} • {{ bag.total_items_in_bag }} item(s) • ${{ bag.cumulative_value_usd | number:'1.2-2' }}
+                  </div>
+                </article>
+              }
+            </div>
+          }
+        </section>
+      }
+
+      <!-- POST-MENU 1: Pull-Bags & Packing Desk -->
+      @if (activeNav() === 'bags') {
+        <section class="panel-card">
+          <div class="panel-row-head">
+            <h3>Open Buyer Pull-Bags &amp; Packing Checklists</h3>
+            <button type="button" class="btn btn-warning btn-sm" (click)="openManifestModal()">
+              Lock All Stream Bags (HITL)
+            </button>
+          </div>
+          @if (openBags().length === 0) {
+            <p class="muted-text">No open Pull-Bags on your packing desk.</p>
+          } @else {
+            <div class="full-bags-grid">
+              @for (bag of openBags(); track bag.bag_number) {
+                <article class="bag-detail-card">
+                  <div class="mini-bag-head">
+                    <strong class="bag-num">{{ bag.bag_number }} — {{ bag.buyer_handle }}</strong>
+                    <span [class]="tierBadgeClass(bag.packaging_tier)">{{ bag.packaging_tier }}</span>
+                  </div>
+                  <div class="mini-bag-meta">
+                    Bin: {{ bag.shelf_bin_coordinate }} • Value: ${{ bag.cumulative_value_usd | number:'1.2-2' }}
+                  </div>
+                  <ul class="bag-ul">
+                    @for (it of bag.items_manifest; track it.sale_id) {
+                      <li>
+                        {{ it.quantity }}x {{ it.item_title }} [{{ it.selling_format }}] — Pull: {{ it.pull_from_location }}
+                        @if (it.rtyh_hit_card) {
+                          <span class="hit-tag">Hit: {{ it.rtyh_hit_card }}</span>
+                        }
+                      </li>
+                    }
+                  </ul>
+                  <div class="supplies-line">
+                    Supplies: {{ bag.protection_supplies_checklist.join(' • ') }}
+                  </div>
+                </article>
+              }
+            </div>
+          }
+        </section>
+      }
+
+      <!-- POST-MENU 2: Inventory & Binders -->
+      @if (activeNav() === 'inventory') {
+        <section class="panel-card">
+          <h3>Register / Restock Inventory Lot</h3>
+          <form class="inv-form-grid" (ngSubmit)="addInventoryLot()">
+            <input type="text" name="sku" placeholder="SKU (e.g. PKM-151-MEW)" [ngModel]="invSku()" (ngModelChange)="invSku.set($event)" required />
+            <input type="text" name="title" placeholder="Card / Pack / Slab / Coin Title" [ngModel]="invTitle()" (ngModelChange)="invTitle.set($event)" required />
+            <select name="format" [ngModel]="invFormat()" (ngModelChange)="invFormat.set($event)">
+              <option value="singles">Singles</option>
+              <option value="rip_and_ship_pack">Rip &amp; Ship Pack</option>
+              <option value="rip_till_you_hit">Rip Till You Hit</option>
+              <option value="graded_slab">Graded Slab</option>
+              <option value="sleeves">Sleeves</option>
+              <option value="coin">Coin</option>
+            </select>
+            <input type="text" name="loc" placeholder="Binder/Shelf Slot" [ngModel]="invLocation()" (ngModelChange)="invLocation.set($event)" required />
+            <input type="number" name="cost" placeholder="Cost Basis ($)" [ngModel]="invCost()" (ngModelChange)="invCost.set($event)" min="0" step="0.5" />
+            <input type="number" name="qty" placeholder="Qty" [ngModel]="invQty()" (ngModelChange)="invQty.set($event)" min="1" />
+            <button type="submit" class="btn btn-primary inv-submit-btn">Save Lot</button>
+          </form>
+
+          <h3 class="mt-16">Current Inventory ({{ inventory().length }} SKUs)</h3>
+          <div class="inv-rows">
+            @for (item of inventory(); track item.sku) {
+              <div class="inv-row">
+                <div>
+                  <strong>{{ item.sku }} — {{ item.item_title }}</strong>
+                  <div class="mini-bag-meta">
+                    Slot: {{ item.storage_location }} • Format: {{ item.selling_format }} • Cost: ${{ item.cost_basis_usd | number:'1.2-2' }}
+                  </div>
+                </div>
+                <span [class]="item.quantity_available <= 2 ? 'badge badge-red' : 'badge badge-green'">
+                  {{ item.quantity_available }} left
+                </span>
+              </div>
+            }
+          </div>
+        </section>
+      }
+
+      <!-- POST-MENU 3: Buyer VIP CRM -->
+      @if (activeNav() === 'crm') {
+        <section class="panel-card">
+          <h3>Repeat-Buyer &amp; VIP CRM Lookup</h3>
+          <form class="crm-search-row" (ngSubmit)="runBuyerLookup()">
+            <input
+              type="text"
+              name="crmHandle"
+              [ngModel]="crmQueryHandle()"
+              (ngModelChange)="crmQueryHandle.set($event)"
+              placeholder="@pokefan99"
+            />
+            <button type="submit" class="btn btn-primary">Lookup Buyer</button>
+          </form>
+
+          @if (crmProfile(); as prof) {
+            <div class="crm-result-card">
+              <div class="mini-bag-head">
+                <strong>{{ prof.buyer_handle }}</strong>
+                <span class="badge badge-blue">{{ prof.vip_tier }}</span>
+              </div>
+              <p>{{ prof.combine_shipping_alert }}</p>
+              <div class="mini-bag-meta">
+                Orders: {{ prof.total_historical_orders }} • Lifetime Spend: ${{ prof.lifetime_spend_usd | number:'1.2-2' }} • Platforms: {{ prof.platforms_used.join(', ') || 'None' }}
+              </div>
+            </div>
+          }
+
+          @if (insights(); as ins) {
+            <h3 class="mt-16">Top Repeat Collectors</h3>
+            <div class="inv-rows">
+              @for (buyer of ins.top_buyers; track buyer.buyer_handle) {
+                <div class="inv-row">
+                  <div>
+                    <strong>{{ buyer.buyer_handle }}</strong>
+                    <span class="mini-bag-meta"> • {{ buyer.total_orders }} order(s)</span>
+                  </div>
+                  <div>
+                    <strong>${{ buyer.lifetime_spend_usd | number:'1.2-2' }}</strong>
+                    <span class="badge badge-green ml-8">{{ buyer.vip_tier }}</span>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </section>
+      }
+
+      <!-- POST-MENU 4: P&L Analytics & AgentOps Trace -->
+      @if (activeNav() === 'analytics') {
+        <section class="panel-card">
+          <h3>Revenue Breakdown by Pokémon Format</h3>
+          <div class="inv-rows">
+            @for (row of formatEntries(); track row.format) {
+              <div class="inv-row">
+                <strong>{{ row.format }}</strong>
+                <span>{{ row.units_sold }} unit(s) • ${{ row.gross_usd | number:'1.2-2' }} gross</span>
+              </div>
+            }
+          </div>
+
+          <h3 class="mt-16">Live AgentOps Intent / Outcome Audit &amp; OpenTelemetry Spans</h3>
+          <div class="inv-rows">
+            @for (ev of auditEvents(); track $index) {
+              <div class="inv-row">
+                <span class="trace-msg">[{{ ev.event_phase }}] {{ ev.tool_name || ev.agent_name }}: {{ ev.message }}</span>
+                <span class="badge badge-blue">trace:{{ ev.trace_id.slice(0, 8) }}</span>
+              </div>
+            }
+          </div>
+        </section>
+      }
+    </main>
+
+    <!-- RIGHT RAIL: Twitch-Chat-Style Live Sales Feed -->
+    <aside class="twitch-rail" aria-label="Live Sales Stream Feed">
+      <div class="twitch-rail-header">
+        <div class="live-dot-row">
+          <span class="live-dot" aria-hidden="true"></span>
+          <h2>LIVE SALES FEED</h2>
+        </div>
+        <span class="feed-count">{{ recentSales().length }} recent</span>
+      </div>
+
+      <div class="twitch-feed-scroll">
+        @if (recentSales().length === 0) {
+          <p class="feed-empty">Waiting for the first hammer drop...</p>
+        } @else {
+          @for (sale of recentSales(); track sale.sale_id) {
+            <article class="chat-sale-msg" [class.chat-sale-voided]="sale.is_voided === 1">
+              <div class="chat-msg-top">
+                <span
+                  class="plat-tag"
+                  [class.plat-whatnot]="sale.platform === 'whatnot'"
+                  [class.plat-ebay]="sale.platform === 'ebay'"
+                >
+                  {{ sale.platform | uppercase }}
+                </span>
+                <strong class="chat-buyer">{{ sale.buyer_handle }}</strong>
+                <span class="chat-bag-pill">{{ sale.bag_number }}</span>
+                <span class="chat-price">${{ sale.hammer_price_usd | number:'1.2-2' }}</span>
+              </div>
+              <div class="chat-msg-body">
+                <span class="fmt-tag">{{ sale.selling_format }}</span>
+                {{ sale.quantity }}x {{ sale.item_title }}
+              </div>
+              <div class="chat-msg-footer">
+                <span>Pull: {{ sale.pull_from_location }} • Net ${{ sale.net_payout_usd | number:'1.2-2' }}</span>
+                @if (sale.is_voided === 0) {
+                  <button type="button" class="void-link" (click)="openVoidModal(sale)">
+                    Void
+                  </button>
+                } @else {
+                  <span class="voided-tag">VOIDED</span>
+                }
+              </div>
+            </article>
+          }
+        }
+      </div>
+    </aside>
+  </div>
+
+  <!-- Native Accessible HITL Modal Overlay -->
+  @if (hitlModal(); as modal) {
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="hitl-title">
+      <div class="modal-card">
+        <h3 id="hitl-title">{{ modal.title }}</h3>
+        <p class="modal-desc">{{ modal.description }}</p>
+        <div class="modal-token">HITL Token: {{ modal.token }}</div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" (click)="closeHitlModal()">Cancel</button>
+          <button type="button" class="btn btn-danger" (click)="approveHitlAction()">
+            Approve &amp; Execute
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+</div>

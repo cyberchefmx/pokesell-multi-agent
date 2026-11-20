@@ -1,10 +1,14 @@
-.PHONY: install test eval web adk-web cli terraform-check
+.PHONY: install test eval web frontend-build adk-web cli terraform-check
 
 PYTHON ?= .venv/bin/python
 
 install:
 	python3.12 -m venv .venv
 	.venv/bin/pip install -r requirements.txt
+
+frontend-build:
+	npm --prefix frontend install
+	npm --prefix frontend run build
 
 test:
 	$(PYTHON) -m pytest -v

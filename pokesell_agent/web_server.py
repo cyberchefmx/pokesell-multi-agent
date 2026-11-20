@@ -51,6 +51,7 @@ from pokesell_agent.tools import (
 )
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+ANGULAR_BROWSER_DIR = STATIC_DIR / "browser"
 SESSION_TTL_SECONDS = 3600
 MAX_REQUESTS_PER_MINUTE = int(os.environ.get("POKESELL_RATE_LIMIT_RPM", "180"))
 
@@ -290,12 +291,19 @@ def create_web_app() -> FastAPI:
         return response
 
     web_app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    if ANGULAR_BROWSER_DIR.is_dir():
+        web_app.mount("/assets", StaticFiles(directory=str(ANGULAR_BROWSER_DIR)), name="angular-assets")
 
     @web_app.get("/")
     async def serve_dashboard_index(request: Request) -> Response:
         sid = _extract_session_cookie(request)
         session = _session_store.get_valid_session(sid)
-        resp = FileResponse(STATIC_DIR / "index.html")
+        index_file = (
+            ANGULAR_BROWSER_DIR / "index.html"
+            if (ANGULAR_BROWSER_DIR / "index.html").is_file()
+            else STATIC_DIR / "index.html"
+        )
+        resp = FileResponse(index_file)
         if session is None:
             new_sid, _ = _session_store.create_session()
             cookie_name = _cookie_name_for_request(request)
@@ -309,6 +317,19 @@ def create_web_app() -> FastAPI:
                 path="/",
             )
         return resp
+
+    @web_app.get("/{asset_name}")
+    async def serve_angular_root_asset(asset_name: str) -> Response:
+        """Safely serve compiled Angular v22 root bundles (main-*.js, styles-*.css, chunks)."""
+        safe_name = Path(asset_name).name
+        if safe_name != asset_name or not ANGULAR_BROWSER_DIR.is_dir():
+            raise HTTPException(status_code=404, detail="Not found.")
+        candidate = (ANGULAR_BROWSER_DIR / safe_name).resolve()
+        if not str(candidate).startswith(str(ANGULAR_BROWSER_DIR.resolve()) + os.sep):
+            raise HTTPException(status_code=404, detail="Not found.")
+        if candidate.is_file() and candidate.suffix in (".js", ".css", ".ico", ".svg", ".png", ".woff2", ".map"):
+            return FileResponse(candidate)
+        raise HTTPException(status_code=404, detail="Not found.")
 
     @web_app.get("/api/v1/session/bootstrap")
     async def bootstrap_session(request: Request, response: Response) -> dict[str, Any]:

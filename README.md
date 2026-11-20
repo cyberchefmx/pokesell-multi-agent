@@ -1,6 +1,5 @@
 # PokeSell Ops (`pokesell-multi-agent`) — Pokémon TCG Live-Stream Sales, Repeat-Buyer CRM & Pull-Bag Fulfillment Multi-Agent System
 
-**Track**: Enterprise & Concierge Commerce Agents — *AI in 5 Days Assessment Agent (95 / 95 AgentOps Code Review Matrix)*
 
 ---
 
