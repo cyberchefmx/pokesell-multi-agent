@@ -307,19 +307,26 @@ def _match_inventory_sku_from_text(prompt: str) -> dict[str, Any] | None:
         return {"sku": sku_match.group(1).upper(), "_explicit_unregistered": True}
 
     lowered = prompt.lower()
+    # If user supplied an explicit card collector number (e.g. 155/200) not present in SKU title,
+    # treat it as a distinct custom card rather than colliding on just the Pokémon name.
+    card_num_match = re.search(r"\b(\d{1,3}/\d{1,3})\b", prompt)
+
     best_item: dict[str, Any] | None = None
     best_score = 0
     for item in db.list_inventory():
+        haystack = f"{item['item_title']} {item['set_name']}".lower()
+        if card_num_match and card_num_match.group(1) not in haystack:
+            continue
         title_tokens = [
             tok
-            for tok in re.findall(r"[a-z0-9]{3,}", f"{item['item_title']} {item['set_name']}".lower())
+            for tok in re.findall(r"[a-z0-9]{3,}", haystack)
             if tok not in ("pokemon", "tcg", "rare", "special", "guaranteed", "rip", "ship", "pack")
         ]
         score = sum(1 for tok in set(title_tokens) if tok in lowered)
         if score > best_score:
             best_score = score
             best_item = item
-    return best_item if best_score >= 1 else None
+    return best_item if best_score >= 2 else None
 
 
 def _extract_buyer_handle(prompt: str) -> tuple[str, bool]:
@@ -342,23 +349,32 @@ def _extract_buyer_handle(prompt: str) -> tuple[str, bool]:
 
 
 def _extract_sale_price_and_qty(prompt: str) -> tuple[float | None, int]:
-    """Extract hammer price and optional quantity (e.g. '3x') from casual live-stream text."""
+    """Extract hammer price (supporting $, £, €, gbp, usd, eur, mxn, cad) and quantity."""
     lower = prompt.lower()
     qty_match = re.search(r"\b(\d{1,3})\s*x\b", lower)
     qty = max(1, min(int(qty_match.group(1)), 200)) if qty_match else 1
 
-    # Priority 1: explicit $price (e.g., "$155", "$19.50")
-    dollar_match = re.search(r"\$\s*(\d+(?:\.\d{1,2})?)", prompt)
-    if dollar_match:
-        return float(dollar_match.group(1)), qty
+    # Priority 1: explicit currency prefix ($369, £369, €369)
+    prefix_match = re.search(r"[$£€]\s*(\d+(?:\.\d{1,2})?)", prompt)
+    if prefix_match:
+        return float(prefix_match.group(1)), qty
 
-    # Priority 2: "for 155" / "at 24"
-    for_match = re.search(r"\b(?:for|at)\s+(\d+(?:\.\d{1,2})?)\s*(?:usd|dollars|bucks)?\b", lower)
+    # Priority 2: explicit currency suffix with or without space (369gbp, 369 usd, 369£)
+    suffix_match = re.search(
+        r"\b(\d+(?:\.\d{1,2})?)\s*(?:gbp|usd|eur|cad|mxn|aud|jpy|pounds?|dollars?|bucks|£|€|\$)\b",
+        lower,
+    )
+    if suffix_match:
+        return float(suffix_match.group(1)), qty
+
+    # Priority 3: "for 155" / "at 24"
+    for_match = re.search(r"\b(?:for|at)\s+(\d+(?:\.\d{1,2})?)\b", lower)
     if for_match:
         return float(for_match.group(1)), qty
 
-    # Priority 3: trailing standalone price (e.g., "Charizard ex 155", "Mew coin to alex 8")
-    cleaned = re.sub(r"\b(psa|bgs|cgc)\s*\d+(?:\.\d+)?\b", "", lower)
+    # Priority 4: trailing standalone price (stripping collector numbers like 155/200 & grades)
+    cleaned = re.sub(r"\b\d{1,3}/\d{1,3}\b", "", lower)
+    cleaned = re.sub(r"\b(psa|bgs|cgc)\s*\d+(?:\.\d+)?\b", "", cleaned)
     cleaned = re.sub(r"\b\d+\s*packs?\b", "", cleaned)
     cleaned = re.sub(r"\b(?:sale|bag|stream)-[a-z0-9-]+\b", "", cleaned)
     cleaned = re.sub(r"#\d+", "", cleaned)
